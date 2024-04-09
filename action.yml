@@ -7,19 +7,22 @@ branding:
   icon: "delete"
 
 inputs:
-  tag_name:
-    description: The name of the tag to delete.
+  owner:
+    description: 'Owner of the repo containing the package version to delete. Defaults to the owner of the repo running the action.'
+    required: false
+  package_type:
+    description: 'Package type, could be maven or npm'
+    required: true
+  packages:
+    description: 'GitHub package names to delete versions from, separated by comma'
+    required: true
+  versions:
+    description: 'Package versions to delete, separated by comma'
     required: true
   github_token:
-    description: A github token that has write access to the repo where the tag is.
-    required: true
-  delete_release:
-    description: Whether to delete all releases that correspond to the provided tag.
+    description: 'A GitHub token with delete access to packages.'
     required: false
-    default: 'true'
-  repo:
-    description: target repository as <owner>/<repository>. Defaults to the repo running this action.
-    required: false
+    default: ${{ github.token }}
 
 runs:
   using: 'node20'

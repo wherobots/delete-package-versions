@@ -4645,7 +4645,7 @@ var require_dist_node4 = __commonJS({
     var once = _interopDefault(require_once());
     var logOnceCode = once((deprecation2) => console.warn(deprecation2));
     var logOnceHeaders = once((deprecation2) => console.warn(deprecation2));
-    var RequestError = class extends Error {
+    var RequestError2 = class extends Error {
       constructor(message, statusCode, options) {
         super(message);
         if (Error.captureStackTrace) {
@@ -4683,7 +4683,7 @@ var require_dist_node4 = __commonJS({
         });
       }
     };
-    exports.RequestError = RequestError;
+    exports.RequestError = RequestError2;
   }
 });
 
@@ -7648,7 +7648,7 @@ var require_core = __commonJS({
       return inputs.map((input) => input.trim());
     }
     exports.getMultilineInput = getMultilineInput;
-    function getBooleanInput2(name, options) {
+    function getBooleanInput(name, options) {
       const trueValue = ["true", "True", "TRUE"];
       const falseValue = ["false", "False", "FALSE"];
       const val = getInput2(name, options);
@@ -7659,7 +7659,7 @@ var require_core = __commonJS({
       throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}
 Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
     }
-    exports.getBooleanInput = getBooleanInput2;
+    exports.getBooleanInput = getBooleanInput;
     function setOutput(name, value) {
       const filePath = process.env["GITHUB_OUTPUT"] || "";
       if (filePath) {
@@ -7673,11 +7673,11 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       command_1.issue("echo", enabled ? "on" : "off");
     }
     exports.setCommandEcho = setCommandEcho;
-    function setFailed(message) {
+    function setFailed2(message) {
       process.exitCode = ExitCode.Failure;
       error2(message);
     }
-    exports.setFailed = setFailed;
+    exports.setFailed = setFailed2;
     function isDebug() {
       return process.env["RUNNER_DEBUG"] === "1";
     }
@@ -7764,6 +7764,7 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
 
 // index.ts
 var import_github = __toESM(require_github());
+var import_request_error = __toESM(require_dist_node4());
 var import_core = __toESM(require_core());
 function log(header, message, level = "default") {
   const loggableMessage = `${header.padEnd(3)}${message}`;
@@ -7779,151 +7780,169 @@ function log(header, message, level = "default") {
       break;
   }
 }
-async function deleteTag(octokit, { owner, repo }, tagName) {
-  try {
-    await octokit.rest.git.deleteRef({
-      owner,
-      repo,
-      ref: `tags/${tagName}`
-    });
-    log("\u2705", `"${tagName}" deleted successfully!`);
-  } catch (error2) {
-    if (error2 instanceof Error) {
-      log(
-        "\u{1F6D1}",
-        `failed to delete tag "${tagName}" <- ${error2.message}`,
-        "error"
-      );
-      if (error2.message === "Reference does not exist") {
-        log(
-          "\u{1F615}",
-          "Proceeding anyway, because tag not existing is the goal",
-          "warn"
-        );
-      } else {
-        log(
-          "\u{1F6D1}",
-          `An error occurred while deleting the tag "${tagName}"`,
-          "error"
-        );
-        process.exit(1);
-      }
-    } else {
-      log(
-        "\u{1F6D1}",
-        `An error occurred while deleting the tag "${tagName}"`,
-        "error"
-      );
-      process.exit(1);
-    }
-  }
-}
-async function deleteReleases(octokit, qualifiedRepo, tagName) {
-  let releaseIds = [];
-  try {
-    const releases = await octokit.rest.repos.listReleases({
-      repo: qualifiedRepo.repo,
-      owner: qualifiedRepo.owner
-    });
-    releaseIds = (releases.data ?? []).filter(({ tag_name, draft }) => tag_name === tagName && !draft).map(({ id }) => id);
-  } catch (error2) {
-    if (error2 instanceof Error) {
-      log("\u{1F6D1}", `failed to get list of releases <- ${error2.message}`, "error");
-    } else {
-      log("\u{1F6D1}", `failed to get list of releases <- ${error2}`, "error");
-    }
-    process.exit(1);
-    return;
-  }
-  if (releaseIds.length === 0) {
-    log("\u{1F615}", `no releases found associated to tag "${tagName}"`, "warn");
-    return;
-  }
-  log("\u{1F37B}", `found ${releaseIds.length} releases to delete`);
-  for (const release_id of releaseIds) {
+async function deletePackageVersions(octokit, owner, packageType, packages, versions) {
+  const pkgType = packageType;
+  const userInfo = await octokit.rest.users.getByUsername({
+    username: owner
+  });
+  const userType = userInfo.data.type;
+  log("\u2139\uFE0F", `Owner type is ${userType}`);
+  for (const pkg of packages) {
+    let allVersions;
     try {
-      await octokit.rest.repos.deleteRelease({
-        release_id,
-        ...qualifiedRepo
-      });
-    } catch (error2) {
-      if (error2 instanceof Error) {
-        log(
-          "\u{1F6D1}",
-          `failed to delete release with id "${release_id}"  <- ${error2.message}`,
-          "error"
+      if (userType === "Organization") {
+        allVersions = await octokit.paginate(
+          octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+          {
+            org: owner,
+            package_type: pkgType,
+            package_name: pkg,
+            per_page: 100
+          }
         );
+      } else {
+        allVersions = await octokit.paginate(
+          octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+          {
+            username: owner,
+            package_type: pkgType,
+            package_name: pkg,
+            per_page: 100
+          }
+        );
+      }
+    } catch (error2) {
+      if (error2 instanceof import_request_error.RequestError && error2.status === 404) {
+        log("\u{1F615}", `Package ${pkg} not found. Skipping...`, "warn");
       } else {
         log(
           "\u{1F6D1}",
-          `failed to delete release with id "${release_id}"  <- ${error2}`,
+          `An error occurred while listing package versions for "${pkg}"`,
           "error"
         );
+        throw error2;
       }
-      process.exit(1);
+    }
+    if (allVersions === void 0) {
+      continue;
+    }
+    const versionsToDelete = allVersions.filter(
+      (version2) => versions.includes(version2.name)
+    );
+    if (versionsToDelete.length === 0) {
+      log("\u2139\uFE0F", `Package ${pkg} has no matching versions. Skipping...`);
+      continue;
+    }
+    let shouldDeletePackage = false;
+    for (const version2 of versionsToDelete) {
+      log(
+        "\u{1F504}",
+        `Deleting package version id=${version2.id} name=${version2.name} for package ${pkg}`
+      );
+      try {
+        if (userType === "Organization") {
+          await octokit.rest.packages.deletePackageVersionForOrg({
+            package_type: pkgType,
+            package_name: pkg,
+            package_version_id: version2.id,
+            org: owner
+          });
+        } else {
+          await octokit.rest.packages.deletePackageVersionForUser({
+            package_type: pkgType,
+            package_name: pkg,
+            package_version_id: version2.id,
+            username: owner
+          });
+        }
+        log(
+          "\u2705",
+          `Deleted package version id=${version2.id} name=${version2.name} for package ${pkg}`
+        );
+      } catch (error2) {
+        if (error2 instanceof import_request_error.RequestError) {
+          if (error2.status === 404) {
+            log(
+              "\u{1F615}",
+              `Package version ${version2.id} does not exist for package ${pkg}. Skipping...`
+            );
+          } else if (error2.message.includes("last version of a package")) {
+            log(
+              "\u2139\uFE0F",
+              `Last version of package ${pkg} cannot be deleted, will delete the package later.`
+            );
+            shouldDeletePackage = true;
+          } else {
+            log(
+              "\u{1F6D1}",
+              `An error occurred while deleting package version id=${version2.id} name=${version2.name} for package ${pkg}`,
+              "error"
+            );
+            throw error2;
+          }
+        } else {
+          log(
+            "\u{1F6D1}",
+            `An error occurred while deleting package version id=${version2.id} name=${version2.name} for package ${pkg}`,
+            "error"
+          );
+          throw error2;
+        }
+      }
+    }
+    if (shouldDeletePackage) {
+      log(
+        "\u{1F504}",
+        `Deleting package ${pkg} since there's only one version left to delete`
+      );
+      try {
+        if (userType === "Organization") {
+          await octokit.rest.packages.deletePackageForOrg({
+            package_type: pkgType,
+            package_name: pkg,
+            org: owner
+          });
+        } else {
+          await octokit.rest.packages.deletePackageForUser({
+            package_type: pkgType,
+            package_name: pkg,
+            username: owner
+          });
+        }
+        log("\u2705", `Deleted package ${pkg}`);
+      } catch (error2) {
+        if (error2 instanceof import_request_error.RequestError && error2.status === 404) {
+          log("\u{1F615}", `Package ${pkg} does not exist. Skipping...`);
+        } else {
+          log("\u{1F6D1}", `An error occurred while deleting package ${pkg}`, "error");
+          throw error2;
+        }
+      }
     }
   }
-  log("\u{1F44D}\u{1F3FC}", "all releases deleted successfully!");
 }
-function getRepo() {
-  const inputRepoData = (0, import_core.getInput)("repo");
-  const [inputOwner, inputRepo] = inputRepoData?.split("/");
-  if (inputRepo && inputOwner) {
-    return {
-      repo: inputRepo,
-      owner: inputOwner
-    };
-  } else if (inputRepo || inputOwner) {
-    log(
-      "\u{1F6D1}",
-      `a valid repo was not given. Expected "${inputRepoData}" to be in the form of "owner/repo"`
-    );
-    process.exit(1);
+function getOwner() {
+  const inputOwner = (0, import_core.getInput)("owner");
+  if (inputOwner) {
+    return inputOwner;
   } else {
-    return import_github.context.repo;
+    return import_github.context.repo.owner;
   }
-}
-function getGitHubToken() {
-  const tokenFromEnv = process.env.GITHUB_TOKEN;
-  const inputToken = (0, import_core.getInput)("github_token");
-  if (inputToken) {
-    return inputToken;
-  }
-  if (tokenFromEnv != null) {
-    log(
-      "\u26A0\uFE0F",
-      'Providing the GitHub token from the environment variable is deprecated. Provide it as an input with the name "github_token" instead.',
-      "warn"
-    );
-    return tokenFromEnv;
-  }
-  log(
-    "\u{1F6D1}",
-    'A valid GitHub token was not provided. Provide it as an input with the name "github_token"',
-    "error"
-  );
-  process.exit(1);
-}
-function getShouldDeleteReleases() {
-  const deleteReleaseInputKey = "delete_release";
-  const hasDeleteReleaseInput = !!(0, import_core.getInput)(deleteReleaseInputKey);
-  if (hasDeleteReleaseInput) {
-    return (0, import_core.getBooleanInput)(deleteReleaseInputKey);
-  }
-  return false;
 }
 function getInputs() {
-  const tagName = (0, import_core.getInput)("tag_name");
-  const githubToken = getGitHubToken();
-  const shouldDeleteReleases = getShouldDeleteReleases();
-  const repo = getRepo();
+  const githubToken = (0, import_core.getInput)("github_token");
+  const packageType = (0, import_core.getInput)("package_type");
+  const packages = (0, import_core.getInput)("packages").split(",");
+  const versions = (0, import_core.getInput)("versions").split(",");
+  const owner = getOwner();
   const octokit = (0, import_github.getOctokit)(githubToken);
   return {
     octokit,
-    tagName,
     githubToken,
-    shouldDeleteReleases,
-    repo
+    owner,
+    packageType,
+    packages,
+    versions
   };
 }
 function validateInputField(isValid, invalidMessage) {
@@ -7933,30 +7952,24 @@ function validateInputField(isValid, invalidMessage) {
   }
 }
 async function run(inputs) {
-  const { tagName, githubToken, shouldDeleteReleases, repo, octokit } = inputs;
+  const { githubToken, octokit, owner, packageType, packages, versions } = inputs;
   (0, import_core.setSecret)(githubToken);
-  validateInputField(tagName, "no tag name provided as an input.");
+  validateInputField(packageType, "no tag name provided as an input.");
   validateInputField(githubToken, "no Github token provided");
-  validateInputField(
-    typeof shouldDeleteReleases === "boolean",
-    `an invalid value for shouldDeleteReleases was provided: ${shouldDeleteReleases}`
-  );
-  validateInputField(
-    repo?.owner && repo?.repo,
-    "An invalid repo was provided!"
-  );
-  log("\u{1F3F7}", `given tag is "${tagName}"`);
-  log("\u{1F4D5}", `given repo is "${repo.owner}/${repo.repo}"`);
-  log("\u{1F4D5}", `delete releases is set to "${shouldDeleteReleases}"`);
-  if (shouldDeleteReleases) {
-    await deleteReleases(octokit, repo, tagName);
-  }
-  await deleteTag(octokit, repo, tagName);
+  validateInputField(owner, "An invalid owner was provided!");
+  validateInputField(packages != null, "Invalid packages provided!");
+  validateInputField(versions != null, "Invalid versions provided!");
+  log("\u{1F4D5}", `given owner is "${owner}"`);
+  log("\u{1F4D5}", `given packageType is "${packageType}"`);
+  log("\u{1F4D5}", `given packages are "${packages}"`);
+  log("\u{1F3F7}", `given versions are "${versions}"`);
+  await deletePackageVersions(octokit, owner, packageType, packages, versions);
 }
 
 // main.ts
+var import_core2 = __toESM(require_core());
 run(getInputs()).catch((reason) => {
-  console.error(reason);
+  (0, import_core2.setFailed)(reason);
 });
 /*! Bundled license information:
 

@@ -1,25 +1,15 @@
 import { context, getOctokit } from "@actions/github";
-import {
-  error,
-  getBooleanInput,
-  getInput,
-  info,
-  setSecret,
-  warning,
-} from "@actions/core";
+import { RequestError } from "@octokit/request-error";
+import { error, getInput, info, setSecret, warning } from "@actions/core";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
-interface QualifiedRepo {
-  owner: string;
-  repo: string;
-}
-
 export interface WorkflowInput {
   githubToken: string;
-  shouldDeleteReleases: boolean;
-  repo: QualifiedRepo;
-  tagName: string;
+  owner: string;
+  packageType: string;
+  packages: string[];
+  versions: string[];
   octokit: Octokit;
 }
 
@@ -54,179 +44,183 @@ function log(
  * Deletes a single tag with the name of {@link tagName}.
  * @param octokit The Octokit instance to use for making API calls to GitHub.
  * @param owner The owner of the repo with the releases to delete.
- * @param repo The repo with the releases to delete.
- * @param tagName The name of the tag to delete. This is expected to be solely the tag name, not the name of a
- * git reference.
+ * @param packageType The type of package to delete.
+ * @param packages The packages to delete.
+ * @param versions The versions to delete.
  */
-async function deleteTag(
+async function deletePackageVersions(
   octokit: Octokit,
-  { owner, repo }: QualifiedRepo,
-  tagName: string
+  owner: string,
+  packageType: string,
+  packages: string[],
+  versions: string[]
 ): Promise<void> {
-  try {
-    await octokit.rest.git.deleteRef({
-      owner,
-      repo,
-      ref: `tags/${tagName}`,
-    });
+  const pkgType = packageType as
+    | "npm"
+    | "maven"
+    | "rubygems"
+    | "docker"
+    | "nuget"
+    | "container";
 
-    log("✅", `"${tagName}" deleted successfully!`);
-  } catch (error) {
-    if (error instanceof Error) {
-      log(
-        "🛑",
-        `failed to delete tag "${tagName}" <- ${error.message}`,
-        "error"
-      );
-      if (error.message === "Reference does not exist") {
-        log(
-          "😕",
-          "Proceeding anyway, because tag not existing is the goal",
-          "warn"
-        );
-      } else {
-        log(
-          "🛑",
-          `An error occurred while deleting the tag "${tagName}"`,
-          "error"
-        );
-        process.exit(1);
-      }
-    } else {
-      log(
-        "🛑",
-        `An error occurred while deleting the tag "${tagName}"`,
-        "error"
-      );
-      process.exit(1);
-    }
-  }
-}
+  const userInfo = await octokit.rest.users.getByUsername({
+    username: owner,
+  });
+  const userType = userInfo.data.type;
+  log("ℹ️", `Owner type is ${userType}`);
 
-/**
- * Deletes all releases that are pointed to {@link tagName}.
- *
- * @param octokit The Octokit instance to use for making API calls to GitHub.
- * @param qualifiedRepo The fully qualified repo to delete releases for.
- * @param tagName The tag name to delete releases that are based on this tag.
- */
-async function deleteReleases(
-  octokit: Octokit,
-  qualifiedRepo: QualifiedRepo,
-  tagName: string
-): Promise<void> {
-  let releaseIds: number[] = [];
-  try {
-    const releases = await octokit.rest.repos.listReleases({
-      repo: qualifiedRepo.repo,
-      owner: qualifiedRepo.owner,
-    });
-    releaseIds = (releases.data ?? [])
-      .filter(({ tag_name, draft }) => tag_name === tagName && !draft)
-      .map(({ id }) => id);
-  } catch (error) {
-    if (error instanceof Error) {
-      log("🛑", `failed to get list of releases <- ${error.message}`, "error");
-    } else {
-      log("🛑", `failed to get list of releases <- ${error}`, "error");
-    }
-    process.exit(1);
-    return;
-  }
-
-  if (releaseIds.length === 0) {
-    log("😕", `no releases found associated to tag "${tagName}"`, "warn");
-    return;
-  }
-  log("🍻", `found ${releaseIds.length} releases to delete`);
-
-  for (const release_id of releaseIds) {
+  for (const pkg of packages) {
+    let allVersions;
     try {
-      await octokit.rest.repos.deleteRelease({
-        release_id,
-        ...qualifiedRepo,
-      });
-    } catch (error) {
-      if (error instanceof Error) {
-        log(
-          "🛑",
-          `failed to delete release with id "${release_id}"  <- ${error.message}`,
-          "error"
+      if (userType === "Organization") {
+        allVersions = await octokit.paginate(
+          octokit.rest.packages.getAllPackageVersionsForPackageOwnedByOrg,
+          {
+            org: owner,
+            package_type: pkgType,
+            package_name: pkg,
+            per_page: 100,
+          }
         );
+      } else {
+        allVersions = await octokit.paginate(
+          octokit.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+          {
+            username: owner,
+            package_type: pkgType,
+            package_name: pkg,
+            per_page: 100,
+          }
+        );
+      }
+    } catch (error) {
+      if (error instanceof RequestError && error.status === 404) {
+        log("😕", `Package ${pkg} not found. Skipping...`, "warn");
       } else {
         log(
           "🛑",
-          `failed to delete release with id "${release_id}"  <- ${error}`,
+          `An error occurred while listing package versions for "${pkg}"`,
           "error"
         );
+        throw error;
       }
-      process.exit(1);
+    }
+
+    if (allVersions === undefined) {
+      continue;
+    }
+
+    const versionsToDelete = allVersions.filter((version) =>
+      versions.includes(version.name)
+    );
+    if (versionsToDelete.length === 0) {
+      log("ℹ️", `Package ${pkg} has no matching versions. Skipping...`);
+      continue;
+    }
+
+    let shouldDeletePackage = false;
+    for (const version of versionsToDelete) {
+      log(
+        "🔄",
+        `Deleting package version id=${version.id} name=${version.name} for package ${pkg}`
+      );
+      try {
+        if (userType === "Organization") {
+          await octokit.rest.packages.deletePackageVersionForOrg({
+            package_type: pkgType,
+            package_name: pkg,
+            package_version_id: version.id,
+            org: owner,
+          });
+        } else {
+          await octokit.rest.packages.deletePackageVersionForUser({
+            package_type: pkgType,
+            package_name: pkg,
+            package_version_id: version.id,
+            username: owner,
+          });
+        }
+        log(
+          "✅",
+          `Deleted package version id=${version.id} name=${version.name} for package ${pkg}`
+        );
+      } catch (error) {
+        if (error instanceof RequestError) {
+          if (error.status === 404) {
+            log(
+              "😕",
+              `Package version ${version.id} does not exist for package ${pkg}. Skipping...`
+            );
+          } else if (error.message.includes("last version of a package")) {
+            log(
+              "ℹ️",
+              `Last version of package ${pkg} cannot be deleted, will delete the package later.`
+            );
+            shouldDeletePackage = true;
+          } else {
+            log(
+              "🛑",
+              `An error occurred while deleting package version id=${version.id} name=${version.name} for package ${pkg}`,
+              "error"
+            );
+            throw error;
+          }
+        } else {
+          log(
+            "🛑",
+            `An error occurred while deleting package version id=${version.id} name=${version.name} for package ${pkg}`,
+            "error"
+          );
+          throw error;
+        }
+      }
+    }
+
+    if (shouldDeletePackage) {
+      log(
+        "🔄",
+        `Deleting package ${pkg} since there's only one version left to delete`
+      );
+      try {
+        if (userType === "Organization") {
+          await octokit.rest.packages.deletePackageForOrg({
+            package_type: pkgType,
+            package_name: pkg,
+            org: owner,
+          });
+        } else {
+          await octokit.rest.packages.deletePackageForUser({
+            package_type: pkgType,
+            package_name: pkg,
+            username: owner,
+          });
+        }
+        log("✅", `Deleted package ${pkg}`);
+      } catch (error) {
+        if (error instanceof RequestError && error.status === 404) {
+          log("😕", `Package ${pkg} does not exist. Skipping...`);
+        } else {
+          log("🛑", `An error occurred while deleting package ${pkg}`, "error");
+          throw error;
+        }
+      }
     }
   }
-
-  log("👍🏼", "all releases deleted successfully!");
 }
 
 /**
  * Gets the repo information for the repo that this action should operate on. Defaults to the repo running this action
  * if the repo isn't explicitly set via this action's input.
  */
-function getRepo(): QualifiedRepo {
-  const inputRepoData = getInput("repo");
-  const [inputOwner, inputRepo] = inputRepoData?.split("/");
+function getOwner(): string {
+  const inputOwner = getInput("owner");
 
-  if (inputRepo && inputOwner) {
-    return {
-      repo: inputRepo,
-      owner: inputOwner,
-    };
-  } else if (inputRepo || inputOwner) {
-    log(
-      "🛑",
-      `a valid repo was not given. Expected "${inputRepoData}" to be in the form of "owner/repo"`
-    );
-    process.exit(1);
+  if (inputOwner) {
+    return inputOwner;
   } else {
     // This default should only happen when no input repo at all is provided.
-    return context.repo;
+    return context.repo.owner;
   }
-}
-
-function getGitHubToken(): string {
-  const tokenFromEnv = process.env.GITHUB_TOKEN;
-  const inputToken = getInput("github_token");
-
-  if (inputToken) {
-    return inputToken;
-  }
-
-  if (tokenFromEnv != null) {
-    log(
-      "⚠️",
-      'Providing the GitHub token from the environment variable is deprecated. Provide it as an input with the name "github_token" instead.',
-      "warn"
-    );
-    return tokenFromEnv;
-  }
-
-  log(
-    "🛑",
-    'A valid GitHub token was not provided. Provide it as an input with the name "github_token"',
-    "error"
-  );
-  process.exit(1);
-}
-
-function getShouldDeleteReleases(): boolean {
-  const deleteReleaseInputKey = "delete_release";
-  const hasDeleteReleaseInput = !!getInput(deleteReleaseInputKey);
-
-  if (hasDeleteReleaseInput) {
-    // This will throw if it's not provided, so we have to wrap it in a check to make
-    // sure it exists first, since it's an optional field.
-    return getBooleanInput(deleteReleaseInputKey);
-  }
-  return false;
 }
 
 /**
@@ -239,18 +233,20 @@ function getShouldDeleteReleases(): boolean {
  * octokit: import("@octokit/core").Octokit & import("@octokit/plugin-rest-endpoint-methods").restEndpointMethods}>}
  */
 export function getInputs(): WorkflowInput {
-  const tagName = getInput("tag_name");
-  const githubToken = getGitHubToken();
-  const shouldDeleteReleases = getShouldDeleteReleases();
-  const repo = getRepo();
+  const githubToken = getInput("github_token");
+  const packageType = getInput("package_type");
+  const packages = getInput("packages").split(",");
+  const versions = getInput("versions").split(",");
+  const owner = getOwner();
   const octokit = getOctokit(githubToken);
 
   return {
     octokit,
-    tagName,
     githubToken,
-    shouldDeleteReleases,
-    repo,
+    owner,
+    packageType,
+    packages,
+    versions,
   };
 }
 
@@ -265,29 +261,23 @@ function validateInputField(isValid: any, invalidMessage: string): void {
  * Runs this action using the provided inputs.
  */
 export async function run(inputs: WorkflowInput): Promise<void> {
-  const { tagName, githubToken, shouldDeleteReleases, repo, octokit } = inputs;
+  const { githubToken, octokit, owner, packageType, packages, versions } =
+    inputs;
 
   setSecret(githubToken);
 
   // Purposefully perform these checks even though the types match because it's possible the inputs were provided
   // directly as environment variables
-  validateInputField(tagName, "no tag name provided as an input.");
+  validateInputField(packageType, "no tag name provided as an input.");
   validateInputField(githubToken, "no Github token provided");
-  validateInputField(
-    typeof shouldDeleteReleases === "boolean",
-    `an invalid value for shouldDeleteReleases was provided: ${shouldDeleteReleases}`
-  );
-  validateInputField(
-    repo?.owner && repo?.repo,
-    "An invalid repo was provided!"
-  );
+  validateInputField(owner, "An invalid owner was provided!");
+  validateInputField(packages != null, "Invalid packages provided!");
+  validateInputField(versions != null, "Invalid versions provided!");
 
-  log("🏷", `given tag is "${tagName}"`);
-  log("📕", `given repo is "${repo.owner}/${repo.repo}"`);
-  log("📕", `delete releases is set to "${shouldDeleteReleases}"`);
+  log("📕", `given owner is "${owner}"`);
+  log("📕", `given packageType is "${packageType}"`);
+  log("📕", `given packages are "${packages}"`);
+  log("🏷", `given versions are "${versions}"`);
 
-  if (shouldDeleteReleases) {
-    await deleteReleases(octokit, repo, tagName);
-  }
-  await deleteTag(octokit, repo, tagName);
+  await deletePackageVersions(octokit, owner, packageType, packages, versions);
 }

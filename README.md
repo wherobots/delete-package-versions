@@ -8,9 +8,9 @@ Add following step to your workflow:
   with:
     package_type: maven #(required) - The type of the package, could be maven or npm.
     packages: com.wherobots.artifact1,com.wherobots,artifact2 #(required) - The list of packages deliminated by comma (,)
-    versions: v0.1.2 #(required) - The versions of the packages to delete, could be multiple versions deliminated by comma (,)
-    repo: <owner>/<repoName> #(optional) default: repo running this action - the target repository. 
-    github_token: ${{ secrets.GITHUB_TOKEN }} # (optional) - a GitHub token with write access to the repo where packages will be searched and deleted. Will use {{ secrets.GITHUB_TOKEN }} if not explicitly specified.
+    versions: 0.1.2 #(required) - The versions of the packages to delete, could be multiple versions deliminated by comma (,)
+    owner: <owner> #(optional) Owner of the repo containing the package version to delete. Defaults to the owner of the repo running the action. 
+    github_token: ${{ secrets.GITHUB_TOKEN }} # (optional) - A GitHub token with delete access to packages. Will use {{ secrets.GITHUB_TOKEN }} if not explicitly specified.
 ```
 
 ## Developing
