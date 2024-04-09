@@ -4,7 +4,7 @@
 Add following step to your workflow:
 
 ```yaml
-- uses: wherobots/delete-package-versions@v1.0
+- uses: wherobots/delete-package-versions@v1.0.0
   with:
     package_type: maven #(required) - The type of the package, could be maven or npm.
     packages: com.wherobots.artifact1,com.wherobots,artifact2 #(required) - The list of packages deliminated by comma (,)
