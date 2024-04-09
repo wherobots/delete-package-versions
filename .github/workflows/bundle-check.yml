@@ -1,8 +1,11 @@
 name: "Bundle Check"
 on:
+  push:
+    branches:
+      - "main"
   pull_request:
     branches:
-      - "master"
+      - "main"
 jobs:
   check:
     name: "Bundle Check"

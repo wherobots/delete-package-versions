@@ -1,8 +1,11 @@
 name: 'Run tests'
 on:
+  push:
+    branches:
+      - "main"
   pull_request:
     branches:
-      - 'master'
+      - 'main'
 jobs:
   test:
     name: 'Tests (Node ${{ matrix.node_version }})'
