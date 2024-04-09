@@ -1,0 +1,23 @@
+name: 'Run tests'
+on:
+  pull_request:
+    branches:
+      - 'master'
+jobs:
+  test:
+    name: 'Tests (Node ${{ matrix.node_version }})'
+    strategy:
+      matrix:
+        node_version: [20]
+    runs-on: 'ubuntu-latest'
+    steps:
+      - name: 'Checkout the current branch'
+        uses: 'actions/checkout@v4'
+      - name: 'Setup Node'
+        uses: 'actions/setup-node@v4'
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: 'Install Node modules'
+        run: 'npm ci'
+      - name: 'Run tests'
+        run: 'npm run test'

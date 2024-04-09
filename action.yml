@@ -1,0 +1,26 @@
+name: Delete package versions
+description: delete version of packages on GitHub packages
+author: "Wherobots"
+
+branding:
+  color: "red"
+  icon: "delete"
+
+inputs:
+  tag_name:
+    description: The name of the tag to delete.
+    required: true
+  github_token:
+    description: A github token that has write access to the repo where the tag is.
+    required: true
+  delete_release:
+    description: Whether to delete all releases that correspond to the provided tag.
+    required: false
+    default: 'true'
+  repo:
+    description: target repository as <owner>/<repository>. Defaults to the repo running this action.
+    required: false
+
+runs:
+  using: 'node20'
+  main: 'dist/main.js'
