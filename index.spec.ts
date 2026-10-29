@@ -1,22 +1,15 @@
-import {
-  describe,
-  it,
-  expect,
-  jest,
-  beforeEach,
-  afterEach,
-} from "@jest/globals";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RequestError } from "@octokit/request-error";
 import type { WorkflowInput } from "./index";
 
 // Mock @actions/core
-const mockGetInput = jest.fn<() => string>();
-const mockInfo = jest.fn<() => void>();
-const mockError = jest.fn<() => void>();
-const mockWarning = jest.fn<() => void>();
-const mockSetSecret = jest.fn<() => void>();
+const mockGetInput = vi.fn<() => string>();
+const mockInfo = vi.fn<() => void>();
+const mockError = vi.fn<() => void>();
+const mockWarning = vi.fn<() => void>();
+const mockSetSecret = vi.fn<() => void>();
 
-jest.mock("@actions/core", () => ({
+vi.mock("@actions/core", () => ({
   getInput: (...args: unknown[]) => mockGetInput(...(args as [])),
   info: (...args: unknown[]) => {
     mockInfo(...(args as []));
@@ -33,9 +26,9 @@ jest.mock("@actions/core", () => ({
 }));
 
 // Mock @actions/github
-const mockGetOctokit = jest.fn<() => unknown>();
+const mockGetOctokit = vi.fn<() => unknown>();
 
-jest.mock("@actions/github", () => ({
+vi.mock("@actions/github", () => ({
   getOctokit: (...args: unknown[]) => mockGetOctokit(...(args as [])),
   context: {
     repo: {
@@ -45,29 +38,28 @@ jest.mock("@actions/github", () => ({
   },
 }));
 
-// Import the module under test - must be after jest.mock calls
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
-const { getInputs, run } = require("./index") as typeof import("./index");
+// Import the module under test - must be after the mock functions are initialized
+const { getInputs, run } = await import("./index.js");
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 function createMockOctokit() {
   return {
     rest: {
       users: {
-        getByUsername: jest.fn<() => Promise<unknown>>(),
+        getByUsername: vi.fn<() => Promise<unknown>>(),
       },
       packages: {
         getAllPackageVersionsForPackageOwnedByOrg:
-          jest.fn<() => Promise<unknown>>(),
+          vi.fn<() => Promise<unknown>>(),
         getAllPackageVersionsForPackageOwnedByUser:
-          jest.fn<() => Promise<unknown>>(),
-        deletePackageVersionForOrg: jest.fn<() => Promise<unknown>>(),
-        deletePackageVersionForUser: jest.fn<() => Promise<unknown>>(),
-        deletePackageForOrg: jest.fn<() => Promise<unknown>>(),
-        deletePackageForUser: jest.fn<() => Promise<unknown>>(),
+          vi.fn<() => Promise<unknown>>(),
+        deletePackageVersionForOrg: vi.fn<() => Promise<unknown>>(),
+        deletePackageVersionForUser: vi.fn<() => Promise<unknown>>(),
+        deletePackageForOrg: vi.fn<() => Promise<unknown>>(),
+        deletePackageForUser: vi.fn<() => Promise<unknown>>(),
       },
     },
-    paginate: jest.fn<() => Promise<unknown>>(),
+    paginate: vi.fn<() => Promise<unknown>>(),
   };
 }
 
@@ -90,11 +82,11 @@ function createInputs(
 
 describe("Delete package versions", () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   describe("getInputs", () => {
