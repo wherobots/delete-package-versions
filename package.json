@@ -9,7 +9,7 @@
   "keywords": [],
   "scripts": {
     "check:types": "tsc --noEmit",
-    "package": "npm run check:types && esbuild main.ts --bundle --platform=node --target=node20 --outfile=dist/main.js",
+    "package": "npm run check:types && esbuild main.ts --bundle --platform=node --target=node24 --outfile=dist/main.js",
     "test": "vitest run index.spec.ts",
     "lint": "npm run check:types && eslint .",
     "lint:fix": "eslint . --fix && npm run check:types"
@@ -36,5 +36,8 @@
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1",
     "@octokit/request-error": "^7.1.2"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

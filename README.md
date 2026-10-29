@@ -86,7 +86,7 @@ permissions:
 
 ### Prerequisites
 
-- [Node.js 20](https://nodejs.org/en/download) or later
+- [Node.js 24](https://nodejs.org/en/download) or later
 
 ### Setup
 
