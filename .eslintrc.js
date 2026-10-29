@@ -24,7 +24,6 @@ module.exports = {
       files: "**/*.spec.ts",
       rules: {
         "@typescript-eslint/no-dynamic-delete": "off",
-        "@typescript-eslint/no-var-requires": "off",
       },
     },
   ],
